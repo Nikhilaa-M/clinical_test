@@ -137,7 +137,7 @@ def forward_to_doctor(question, nurse_id):
 def handle_response(question, nurse_id):
     not_sure_count = 0
 
-    response = st.radio(f"{question}", ["Yes", "No", "Not Sure"], key=f"response_{question}")
+    response = st.radio(f"{question}", ["Yes", "No"], key=f"response_{question}")
     
     if response == "Not Sure":
         not_sure_count += 1
