@@ -3,9 +3,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import os
 from dotenv import load_dotenv
-import time
 import pandas as pd
-import io
 
 # Load Firebase credentials
 load_dotenv()
@@ -83,7 +81,7 @@ exclusion_criteria = [
     "Does the subject have severe liver disease?"
 ]
 
-explanations = {
+explanations = { 
     "Is the subject aged between 18 and 75 years at Screening?": "The age range of 18 to 75 years is chosen to ensure the study includes adult patients without age-related vulnerabilities that could skew results.",
     "Has informed consent been obtained?": "Informed consent means the patient has agreed to participate in the study with an understanding of the risks and benefits.",
     "Is the infection (HABP/VABP ± ccBSI) caused by a suspected or documented carbapenem-resistant Gram-negative pathogen?": "Carbapenem-resistant Gram-negative pathogens are bacteria that resist a broad spectrum of antibiotics, including carbapenems, and are often serious infections.",
@@ -151,196 +149,8 @@ def handle_response(question, nurse_id):
     elif response in ["Yes", "No"]:
         return "Response recorded.", response.lower()
 
-def run_clinical_test():
-    st.title("Eligibility Criteria Chatbot")
-    
-    nurse_id = st.session_state.nurse_id
-    subject_name = st.text_input("Enter the name of the subject:")
-    patient_id = st.text_input("Enter the ID of the patient:")
-
-    patient_data = {
-        'nurse_id': nurse_id,
-        'patient_id': patient_id,
-        'subject_name': subject_name,
-        'responses': {},
-        'conclusion': '',
-    }
-
-    st.subheader("Inclusion Criteria")
-    for idx, question in enumerate(inclusion_criteria, start=1):
-        result, response = handle_response(question, nurse_id)
-        patient_data['responses'][f'inclusion_{idx}'] = response
-    
-    st.subheader("Exclusion Criteria")
-    for idx, question in enumerate(exclusion_criteria, start=len(inclusion_criteria) + 1):
-        result, response = handle_response(question, nurse_id)
-        patient_data['responses'][f'exclusion_{idx}'] = response
-
-    if st.button("Submit Patient Data"):
-        # Determine conclusion
-        unconcluded_flag = any(response == "unconcluded" for response in patient_data['responses'].values())
-        exclusion_flag = any(response == "yes" for key, response in patient_data['responses'].items() if key.startswith('exclusion_'))
-        
-        if unconcluded_flag:
-            patient_data['conclusion'] = "Unconcluded"
-        elif exclusion_flag:
-            patient_data['conclusion'] = "Excluded"
-        else:
-            patient_data['conclusion'] = "Eligible"
-
-        # Store in Firestore
-        patients_ref = db.collection('PATIENTS')
-        patients_ref.document(patient_id).set(patient_data)
-        
-        st.success("Patient data has been stored successfully!")
-        st.write(f"Conclusion: {patient_data['conclusion']}")
-
-def download_report(patient_id, nurse_id):
-    try:
-        # Retrieve patient data from Firestore
-        patient_ref = db.collection('PATIENTS').document(patient_id)
-        patient_data = patient_ref.get()
-
-        if patient_data.exists:
-            patient_data = patient_data.to_dict()
-            conclusion = patient_data.get('conclusion', '')
-            if conclusion == "Unconcluded":
-                st.warning("Cannot generate report for unconcluded patient.")
-            else:
-                generate_pdf(patient_data, nurse_id, patient_id)
-                st.success(f"Patient report for ID {patient_id} has been generated.")
-        else:
-            st.error(f"Patient with ID {patient_id} not found.")
-    except Exception as e:
-        st.error(f"Error generating PDF: {e}")
-
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import Paragraph
-from reportlab.pdfgen import canvas
-import os
-
-def generate_pdf(patient_data, nurse_id, patient_id):
-    # Ensure the 'Downloads' folder exists
-    download_dir = 'Downloads'  # Folder name with a capital 'D'
-    if not os.path.exists(download_dir):
-        os.makedirs(download_dir)  # Create the directory if it doesn't exist
-
-    # Path to save the PDF file
-    pdf_filename = os.path.join(download_dir, f"patient_{patient_id}_report.pdf")
-    #pdf_buffer = io.BytesIO()
-
-    try:
-        c = canvas.Canvas(pdf_filename, pagesize=letter)
-        width, height = letter
-        c.setFont("Helvetica", 14)  # Increased font size to 14
-
-        # Creating styles for alignment
-        styles = getSampleStyleSheet()
-        style_normal = styles["Normal"]
-        style_normal.fontName = "Helvetica"
-        style_normal.fontSize = 14  # Increased font size to 14
-
-        # Adding content to the PDF using Paragraph for better alignment
-        c.drawString(100, height - 50, f"Patient Report for ID: {patient_id}")
-        c.drawString(100, height - 70, f"Nurse ID: {nurse_id}")
-        c.drawString(100, height - 90, f"Name: {patient_data.get('subject_name', 'N/A')}")
-        c.drawString(100, height - 110, f"Patient ID: {patient_id}")
-
-        conclusion = patient_data.get('conclusion', '')
-        
-        # List of exclusion questions mapped to their IDs in Firestore
-        exclusion_questions = {
-            "exclusion_31": "Does the subject have any hypersensitivity or allergic reactions to B-lactam antibiotics?",
-            "exclusion_32": "Does the subject have any pre-existing neurological disorders?",
-            "exclusion_33": "Has the subject received any prior treatment with antibiotics effective against carbapenem-resistant Gram-negative bacteria?",
-            "exclusion_34": "Does the subject have severe sepsis or septic shock requiring high-level vasopressors?",
-            "exclusion_35": "Does the subject have a Cr <30 mL/min at screening?",
-            "exclusion_36": "Is there a history of chronic kidney disease?",
-            "exclusion_37": "Are there any co-infections with specific pathogens (e.g., Gram-positive bacteria, Aspergillosis)?",
-            "exclusion_38": "Is there a central nervous system infection present?",
-            "exclusion_39": "Does the subject have infections requiring extended antibiotic treatment (e.g., bone infections)?",
-            "exclusion_40": "Does the subject have cystic fibrosis or severe bronchiectasis?",
-            "exclusion_41": "Does the subject have severe neutropenia?",
-            "exclusion_42": "Has the subject tested positive for pregnancy or is lactating?",
-            "exclusion_43": "Does the subject have a Sequential Organ Failure Assessment (SOFA) score greater than 6?",
-            "exclusion_44": "Is there any condition that might compromise safety or data quality according to the investigator?",
-            "exclusion_45": "Has the subject received any investigational drug or device within 30 days prior to entry?",
-            "exclusion_46": "Has the subject been previously enrolled in this study or received WCK 5222?",
-            "exclusion_47": "Is the subject receiving dialysis, continuous renal replacement therapy, or ECMO?",
-            "exclusion_48": "Does the subject have myasthenia gravis or any other neuromuscular disorder?",
-            "exclusion_49": "Does the subject have severe liver disease?"
-        }
-
-        # Check if the patient is excluded
-        if conclusion == "Excluded":
-            exclusion_criteria_violations = []
-            
-            # Get the responses from the 'responses' field
-            responses = patient_data.get('responses', {})
-
-            # Check the responses for each exclusion question and add to the list if 'yes'
-            for exclusion_key, exclusion_question in exclusion_questions.items():
-                response = responses.get(exclusion_key, "").lower()
-                if response == "yes":
-                    exclusion_criteria_violations.append(f"Question: {exclusion_question}")
-
-            # If there are any violations, add them to the PDF
-            if exclusion_criteria_violations:
-                c.drawString(100, height - 140, "Exclusion Criteria Violations:")
-                y_position = height - 160
-
-                # Using Paragraph for better text wrapping
-                for violation in exclusion_criteria_violations:
-                    para = Paragraph(violation, style_normal)
-                    para_width = width - 200  # Set max width to fit the page
-                    para_height = para.wrap(para_width, 100)[1]  # Wrap the text
-                    para.drawOn(c, 100, y_position - para_height)
-                    y_position -= (para_height + 10)  # Adjust y-position after each paragraph
-
-        elif conclusion == "Eligible":
-            para = Paragraph("Patient is eligible.", style_normal)
-            para_width = width - 200
-            para_height = para.wrap(para_width, 100)[1]
-            para.drawOn(c, 100, height - 140 - para_height)
-
-        # Save the PDF
-        #pdf_buffer.seek(0)
-        #return pdf_buffer.getvalue()
-        c.save()
-        return pdf_filename
-    except Exception as e:
-        st.error(f"Error generating PDF: {e}")
-        raise
-
-def download_reports():
-    st.title("Patient Reports")
-    
-    # Retrieve patient data
-    patients_ref = db.collection('PATIENTS')
-    patients = patients_ref.stream()
-
-    patient_data = []
-    for patient in patients:
-        data = patient.to_dict()
-        patient_data.append({
-            'Patient ID': data.get('patient_id', 'N/A'),
-            'Subject Name': data.get('subject_name', 'N/A'),
-            'Conclusion': data.get('conclusion', 'N/A'),
-            'Download': data.get('patient_id', 'N/A')
-        })
-
-    df = pd.DataFrame(patient_data)
-    st.dataframe(df)
-
-    # Add download buttons
-    for patient_id in df['Patient ID']:
-        nurse_id = st.session_state.nurse_id
-        if st.button(f"Download Report for Patient ID {patient_id}", key=f"download_{patient_id}"):
-            download_report(patient_id, nurse_id)
-
 def main():
-    st.set_page_config(page_title="Nurse Management App", page_icon="🏥")
+    st.set_page_config(page_title="Clinical Test", page_icon="🏥")
 
     # Login Page
     if 'logged_in' not in st.session_state:
@@ -361,23 +171,55 @@ def main():
                 else:
                     st.error("Invalid Nurse ID")
 
-    # Main App
+    # Clinical Test Page
     if st.session_state.get('logged_in'):
-        st.sidebar.title(f"Welcome, Nurse {st.session_state.nurse_id}")
+        st.title("Eligibility Criteria Chatbot")
         
-        # Navigation
-        app_mode = st.sidebar.radio("Choose an option", 
-                                    ["Clinical Test", "Download Reports"])
-        
-        if app_mode == "Clinical Test":
-            run_clinical_test()
-        else:
-            download_reports()
+        nurse_id = st.session_state.nurse_id
+        subject_name = st.text_input("Enter the name of the subject:")
+        patient_id = st.text_input("Enter the ID of the patient:")
 
-        if st.sidebar.button("Logout"):
+        patient_data = {
+            'nurse_id': nurse_id,
+            'patient_id': patient_id,
+            'subject_name': subject_name,
+            'responses': {},
+            'conclusion': '',
+        }
+
+        st.subheader("Inclusion Criteria")
+        for idx, question in enumerate(inclusion_criteria, start=1):
+            result, response = handle_response(question, nurse_id)
+            patient_data['responses'][f'inclusion_{idx}'] = response
+        
+        st.subheader("Exclusion Criteria")
+        for idx, question in enumerate(exclusion_criteria, start=len(inclusion_criteria) + 1):
+            result, response = handle_response(question, nurse_id)
+            patient_data['responses'][f'exclusion_{idx}'] = response
+
+        if st.button("Submit Patient Data"):
+            # Determine conclusion
+            unconcluded_flag = any(response == "unconcluded" for response in patient_data['responses'].values())
+            exclusion_flag = any(response == "yes" for key, response in patient_data['responses'].items() if key.startswith('exclusion_'))
+            
+            if unconcluded_flag:
+                patient_data['conclusion'] = "Unconcluded"
+            elif exclusion_flag:
+                patient_data['conclusion'] = "Excluded"
+            else:
+                patient_data['conclusion'] = "Eligible"
+
+            # Store in Firestore
+            patients_ref = db.collection('PATIENTS')
+            patients_ref.document(patient_id).set(patient_data)
+            
+            st.success("Patient data has been stored successfully!")
+            st.write(f"Conclusion: {patient_data['conclusion']}")
+
+        # Logout button
+        if st.button("Logout"):
             st.session_state.logged_in = False
             st.experimental_rerun()
 
 if __name__ == "__main__":
     main()
- 
