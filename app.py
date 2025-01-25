@@ -357,7 +357,7 @@ def main():
                 if nurse_id.strip() in nurse_data.get('nid', []):
                     st.session_state.logged_in = True
                     st.session_state.nurse_id = nurse_id
-                    st.rerun()
+                    st.experimental_rerun()
                 else:
                     st.error("Invalid Nurse ID")
 
@@ -376,7 +376,8 @@ def main():
 
         if st.sidebar.button("Logout"):
             st.session_state.logged_in = False
-            st.rerun()
+            st.experimental_rerun()
 
 if __name__ == "__main__":
-    main()  
+    main()
+ 
